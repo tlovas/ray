@@ -335,7 +335,13 @@ class _TrainSession:
                 if inter_actor_item:
                     # Must release continue_lock to allow report to work.
                     self.continue_lock.release()
-                    self.report(inter_actor_item)
+                    try:
+                        metrics, checkpoint = inter_actor_item
+                        self.report(metrics, checkpoint)
+                    except Exception as e:
+                        logger.info(f"Got an exception during _get_result_from_queues in personalized code: {e}"
+                                    f" Trying original code snippet.")
+                        self.report(inter_actor_item)
             except ray_queue.Empty:
                 pass
         try:
