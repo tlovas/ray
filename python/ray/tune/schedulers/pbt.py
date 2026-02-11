@@ -987,18 +987,62 @@ class PopulationBasedTraining(FIFOScheduler):
             )
         )
 
-        # Delete the checkpoint manager snapshot from storage so it doesn't
-        # override the cloned checkpoint when the trial resumes
+        # Copy the cloned checkpoint to the trial's own S3 directory.
+        # This allows Ray Train's snapshot system to work normally - the snapshot
+        # will point to a checkpoint in the trial's own directory, which we've
+        # populated with the cloned checkpoint.
         if hasattr(trial, '_storage') and trial._storage:
-            snapshot_path = trial._storage.checkpoint_manager_snapshot_path
             try:
-                if trial._storage.storage_filesystem.get_file_info(snapshot_path).type != 0:
-                    logger.info(f"[PBT-DEBUG] Deleting checkpoint snapshot at {snapshot_path}")
-                    trial._storage.storage_filesystem.delete_file(snapshot_path)
-            except Exception as e:
-                logger.warning(f"[PBT-DEBUG] Could not delete snapshot: {e}")
+                import json
+                from pathlib import Path
+                from datetime import datetime
 
-        logger.info(f"[PBT-DEBUG] Set checkpoint manager latest to: {checkpoint_to_exploit}")
+                # Generate a new checkpoint directory name for the cloned checkpoint
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")
+                new_checkpoint_dir = f"checkpoint_{timestamp}"
+
+                trial_fs_path = trial._storage.trial_fs_path
+                destination_checkpoint_path = Path(trial_fs_path, new_checkpoint_dir).as_posix()
+
+                filesystem = trial._storage.storage_filesystem
+
+                logger.info(f"[PBT-DEBUG] Copying checkpoint from {checkpoint_to_exploit.path} "
+                           f"to {destination_checkpoint_path}")
+
+                # Copy checkpoint files from source to destination in S3
+                from ray.train._internal.storage import _pyarrow_fs_copy_files
+                _pyarrow_fs_copy_files(
+                    source=checkpoint_to_exploit.path,
+                    destination=destination_checkpoint_path,
+                    source_filesystem=checkpoint_to_exploit.filesystem,
+                    destination_filesystem=filesystem
+                )
+
+                logger.info(f"[PBT-DEBUG] Successfully copied checkpoint to trial's directory")
+
+                # Create new checkpoint object pointing to the copied location
+                cloned_checkpoint_in_trial_dir = Checkpoint(
+                    path=destination_checkpoint_path,
+                    filesystem=filesystem
+                )
+
+                # Update checkpoint manager to point to the new location
+                trial.run_metadata.checkpoint_manager._latest_checkpoint_result = (
+                    _TrainingResult(
+                        checkpoint=cloned_checkpoint_in_trial_dir,
+                        metrics=new_state.last_result
+                    )
+                )
+
+                logger.info(f"[PBT-DEBUG] Checkpoint now at: {cloned_checkpoint_in_trial_dir}")
+
+            except Exception as e:
+                logger.error(f"[PBT-DEBUG] Failed to copy checkpoint: {e}")
+                import traceback
+                logger.error(f"[PBT-DEBUG] Traceback: {traceback.format_exc()}")
+
+        else:
+            logger.info(f"[PBT-DEBUG] Set checkpoint manager latest to: {checkpoint_to_exploit}")
 
         self._num_perturbations += 1
         # Transfer over the last perturbation time as well
