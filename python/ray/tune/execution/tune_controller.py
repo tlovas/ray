@@ -1719,9 +1719,11 @@ class TuneController:
         # in the case of PBT to block until the checkpoint is ready.
         # In all other situations, the checkpoint future is processed by the
         # actor event manager when it is ready.
+        logger.info(f"[PBT-DEBUG] Created FutureTrainingResult for trial {trial}: {trial.temporary_state.saving_to}")
         return trial.temporary_state.saving_to
 
     def _on_saving_result(self, trial, checkpoint_value: _TrainingResult):
+        logger.info(f"[PBT-DEBUG] _on_saving_result called for trial {trial}, checkpoint_value: {checkpoint_value}")
         with warn_if_slow("process_trial_save"):
             self._process_trial_save(trial, checkpoint_value)
 

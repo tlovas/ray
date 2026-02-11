@@ -694,6 +694,7 @@ class PopulationBasedTraining(FIFOScheduler):
                 state.last_checkpoint = tune_controller._schedule_trial_save(
                     trial, result=state.last_result
                 )
+                logger.info(f"[PBT-DEBUG] Scheduled save for {trial}, got: {state.last_checkpoint}")
             self._num_checkpoints += 1
         else:
             state.last_checkpoint = None  # not a top trial
@@ -704,30 +705,37 @@ class PopulationBasedTraining(FIFOScheduler):
             clone_state = self._trial_state[trial_to_clone]
             last_checkpoint = clone_state.last_checkpoint
 
-            logger.debug(
-                f"Trial {trial} is in lower quantile. "
-                f"Exploiting trial {trial_to_clone}."
+            logger.info(
+                f"[PBT-DEBUG] Trial {trial} is in lower quantile. "
+                f"Exploiting trial {trial_to_clone}. "
+                f"Checkpoint type: {type(last_checkpoint)}, value: {last_checkpoint}"
             )
 
             if isinstance(last_checkpoint, _FutureTrainingResult):
+                logger.info(f"[PBT-DEBUG] Resolving checkpoint future for trial {trial_to_clone}")
                 training_result = last_checkpoint.resolve()
+                logger.info(f"[PBT-DEBUG] Resolved result: {training_result}")
 
                 if training_result:
+                    logger.info(f"[PBT-DEBUG] Training result has checkpoint: {training_result.checkpoint}")
                     clone_state.last_result = training_result.metrics
                     clone_state.last_checkpoint = training_result.checkpoint
                     last_checkpoint = clone_state.last_checkpoint
+                    logger.info(f"[PBT-DEBUG] Updated last_checkpoint to: {last_checkpoint}")
                 else:
-                    logger.debug(
-                        "PBT-scheduled checkpoint save resolved to None. Trial "
+                    logger.warning(
+                        "[PBT-DEBUG] PBT-scheduled checkpoint save resolved to None. Trial "
                         f"{trial_to_clone} didn't save any checkpoint before "
                         f"and can't be exploited."
                     )
                     last_checkpoint = None
 
             if not last_checkpoint:
-                logger.info(
-                    f"[pbt]: no checkpoint for trial {trial_to_clone}."
-                    f" Skip exploit for Trial {trial}"
+                logger.warning(
+                    f"[PBT-DEBUG] [pbt]: no checkpoint for trial {trial_to_clone}. "
+                    f"Skip exploit for Trial {trial}. "
+                    f"Clone state last_checkpoint: {clone_state.last_checkpoint}, "
+                    f"Clone state last_result: {clone_state.last_result}"
                 )
                 return
             self._exploit(tune_controller, trial, trial_to_clone)

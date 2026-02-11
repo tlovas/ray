@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import time
+import traceback
 import warnings
 from dataclasses import dataclass
 from datetime import datetime
@@ -88,12 +89,24 @@ class _FutureTrainingResult:
         else:
             timeout = 1e-9
         try:
-            return ray.get(self.future, timeout=timeout)
+            result = ray.get(self.future, timeout=timeout)
+            logger.info(f"[PBT-DEBUG] Successfully resolved checkpoint result: {result}")
+            if result and result.checkpoint:
+                logger.info(f"[PBT-DEBUG] Checkpoint details - path: {result.checkpoint.path}, "
+                           f"filesystem: {result.checkpoint.filesystem.type_name if result.checkpoint.filesystem else 'None'}")
+            else:
+                logger.warning(f"[PBT-DEBUG] Resolved result has no checkpoint! Result: {result}")
+            return result
         except TimeoutError:
             # Not ready, yet
+            logger.debug("[PBT-DEBUG] Checkpoint not ready yet (TimeoutError)")
             pass
         except Exception as exc:
-            logger.error(f"Error resolving result: {exc}")
+            logger.error(f"[PBT-DEBUG] Error resolving checkpoint result: {exc}")
+            logger.error(f"[PBT-DEBUG] Exception type: {type(exc).__name__}")
+            logger.error(f"[PBT-DEBUG] Full traceback:\n{traceback.format_exc()}")
+            # Return None explicitly to make it clear this is intentional
+            return None
 
 
 class _TrainingResult:

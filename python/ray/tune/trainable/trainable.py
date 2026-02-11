@@ -502,6 +502,10 @@ class Trainable:
             # Update the checkpoint result to include auto-filled metrics.
             checkpoint_result.metrics.update(self._last_result)
 
+        logger.info(f"[PBT-DEBUG] Trainable.save() returning checkpoint_result: {checkpoint_result}")
+        if checkpoint_result and checkpoint_result.checkpoint:
+            logger.info(f"[PBT-DEBUG] Checkpoint path: {checkpoint_result.checkpoint.path}, "
+                       f"filesystem: {checkpoint_result.checkpoint.filesystem.type_name if checkpoint_result.checkpoint.filesystem else 'None'}")
         return checkpoint_result
 
     @DeveloperAPI
