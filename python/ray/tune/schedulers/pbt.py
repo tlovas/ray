@@ -975,11 +975,30 @@ class PopulationBasedTraining(FIFOScheduler):
         # checkpoint
         checkpoint_to_exploit: Checkpoint = copy.copy(new_state.last_checkpoint)
 
+        logger.info(f"[PBT-DEBUG] Exploiting: trial {trial} will clone checkpoint "
+                   f"{checkpoint_to_exploit} from trial {trial_to_clone}")
+
+        # Clear the checkpoint manager to prevent snapshot restoration from
+        # overriding the cloned checkpoint
+        trial.run_metadata.checkpoint_manager._checkpoint_results.clear()
         trial.run_metadata.checkpoint_manager._latest_checkpoint_result = (
             _TrainingResult(
                 checkpoint=checkpoint_to_exploit, metrics=new_state.last_result
             )
         )
+
+        # Delete the checkpoint manager snapshot from storage so it doesn't
+        # override the cloned checkpoint when the trial resumes
+        if hasattr(trial, '_storage') and trial._storage:
+            snapshot_path = trial._storage.checkpoint_manager_snapshot_path
+            try:
+                if trial._storage.storage_filesystem.get_file_info(snapshot_path).type != 0:
+                    logger.info(f"[PBT-DEBUG] Deleting checkpoint snapshot at {snapshot_path}")
+                    trial._storage.storage_filesystem.delete_file(snapshot_path)
+            except Exception as e:
+                logger.warning(f"[PBT-DEBUG] Could not delete snapshot: {e}")
+
+        logger.info(f"[PBT-DEBUG] Set checkpoint manager latest to: {checkpoint_to_exploit}")
 
         self._num_perturbations += 1
         # Transfer over the last perturbation time as well
