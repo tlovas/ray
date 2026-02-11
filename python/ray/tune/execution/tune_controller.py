@@ -1770,6 +1770,10 @@ class TuneController:
 
                 self._checkpoint_manager.on_trial_checkpoint(trial)
 
+                # Notify scheduler about the checkpoint (for PBT)
+                if hasattr(self._scheduler_alg, 'on_checkpoint'):
+                    self._scheduler_alg.on_checkpoint(trial, checkpoint_value)
+
                 self._mark_trial_to_checkpoint(trial)
         except Exception:
             logger.exception(

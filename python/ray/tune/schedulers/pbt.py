@@ -643,6 +643,30 @@ class PopulationBasedTraining(FIFOScheduler):
                 else TrialScheduler.PAUSE
             )
 
+    def on_checkpoint(self, trial: Trial, checkpoint_result: _TrainingResult):
+        """Called when a checkpoint is saved for a trial.
+
+        This updates the PBT trial state with the actual checkpoint after
+        the save completes, replacing the _FutureTrainingResult.
+
+        Args:
+            trial: The trial that was checkpointed.
+            checkpoint_result: The training result containing the checkpoint.
+        """
+        if trial not in self._trial_state:
+            return
+
+        state = self._trial_state[trial]
+        # Update the checkpoint in the trial state
+        if checkpoint_result and checkpoint_result.checkpoint:
+            logger.info(f"[PBT-DEBUG] Updating trial state checkpoint for {trial} "
+                       f"to {checkpoint_result.checkpoint}")
+            state.last_checkpoint = checkpoint_result.checkpoint
+            state.last_result = checkpoint_result.metrics
+        else:
+            logger.warning(f"[PBT-DEBUG] on_checkpoint called for {trial} "
+                          f"but checkpoint_result has no checkpoint")
+
     def _save_trial_state(
         self, state: _PBTTrialState, time: int, result: Dict, trial: Trial
     ):
