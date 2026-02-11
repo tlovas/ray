@@ -141,6 +141,29 @@ class FunctionTrainable(Trainable):
         # TODO(justinvyu): This currently breaks the `save_checkpoint` interface.
         # TRAIN -> SAVE remote calls get processed sequentially,
         # so `_last_training_result.checkpoint` holds onto the latest ckpt.
+
+        # PBT FIX: If _last_training_result doesn't have a checkpoint,
+        # try to get the latest checkpoint from the checkpoint manager.
+        # This handles the case where Ray Train multi-worker training
+        # reports checkpoints that don't get stored in _last_training_result.
+        if self._last_training_result and self._last_training_result.checkpoint:
+            logger.info(f"[PBT-DEBUG] Returning checkpoint from _last_training_result: "
+                       f"{self._last_training_result.checkpoint}")
+            return self._last_training_result
+
+        # Try to get the latest checkpoint from the trial's checkpoint manager
+        if hasattr(self, 'run_metadata') and self.run_metadata.checkpoint_manager:
+            latest_checkpoint_result = (
+                self.run_metadata.checkpoint_manager._latest_checkpoint_result
+            )
+            if latest_checkpoint_result and latest_checkpoint_result.checkpoint:
+                logger.info(f"[PBT-DEBUG] Returning checkpoint from checkpoint_manager: "
+                           f"{latest_checkpoint_result.checkpoint}")
+                return latest_checkpoint_result
+
+        logger.warning(f"[PBT-DEBUG] No checkpoint available in save_checkpoint(). "
+                      f"_last_training_result: {self._last_training_result}, "
+                      f"checkpoint_manager latest: {latest_checkpoint_result if 'latest_checkpoint_result' in locals() else 'N/A'}")
         return self._last_training_result
 
     def load_checkpoint(self, checkpoint_result: _TrainingResult):
