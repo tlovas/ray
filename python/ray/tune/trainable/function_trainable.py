@@ -143,27 +143,38 @@ class FunctionTrainable(Trainable):
         # so `_last_training_result.checkpoint` holds onto the latest ckpt.
 
         # PBT FIX: If _last_training_result doesn't have a checkpoint,
-        # try to get the latest checkpoint from the checkpoint manager.
+        # reconstruct it from the checkpoint_path in the metrics.
         # This handles the case where Ray Train multi-worker training
-        # reports checkpoints that don't get stored in _last_training_result.
+        # reports checkpoints from workers that don't get stored in
+        # the driver's _last_training_result.
         if self._last_training_result and self._last_training_result.checkpoint:
             logger.info(f"[PBT-DEBUG] Returning checkpoint from _last_training_result: "
                        f"{self._last_training_result.checkpoint}")
             return self._last_training_result
 
-        # Try to get the latest checkpoint from the trial's checkpoint manager
-        if hasattr(self, 'run_metadata') and self.run_metadata.checkpoint_manager:
-            latest_checkpoint_result = (
-                self.run_metadata.checkpoint_manager._latest_checkpoint_result
-            )
-            if latest_checkpoint_result and latest_checkpoint_result.checkpoint:
-                logger.info(f"[PBT-DEBUG] Returning checkpoint from checkpoint_manager: "
-                           f"{latest_checkpoint_result.checkpoint}")
-                return latest_checkpoint_result
+        # If no checkpoint in _last_training_result but checkpoint_path exists in metrics,
+        # reconstruct the checkpoint from the S3 path
+        if self._last_training_result and self._last_training_result.metrics:
+            checkpoint_path = self._last_training_result.metrics.get('checkpoint_path')
+            if checkpoint_path:
+                logger.info(f"[PBT-DEBUG] Reconstructing checkpoint from checkpoint_path: {checkpoint_path}")
+                # Import here to avoid circular dependency
+                from ray.train import Checkpoint
+
+                # The checkpoint_path is the S3 path without the s3:// prefix
+                # Reconstruct the full checkpoint with S3 filesystem
+                reconstructed_checkpoint = Checkpoint(f"s3://{checkpoint_path}")
+
+                # Create a new TrainingResult with the reconstructed checkpoint
+                reconstructed_result = _TrainingResult(
+                    checkpoint=reconstructed_checkpoint,
+                    metrics=self._last_training_result.metrics
+                )
+                logger.info(f"[PBT-DEBUG] Reconstructed checkpoint: {reconstructed_checkpoint}")
+                return reconstructed_result
 
         logger.warning(f"[PBT-DEBUG] No checkpoint available in save_checkpoint(). "
-                      f"_last_training_result: {self._last_training_result}, "
-                      f"checkpoint_manager latest: {latest_checkpoint_result if 'latest_checkpoint_result' in locals() else 'N/A'}")
+                      f"_last_training_result: {self._last_training_result}")
         return self._last_training_result
 
     def load_checkpoint(self, checkpoint_result: _TrainingResult):
